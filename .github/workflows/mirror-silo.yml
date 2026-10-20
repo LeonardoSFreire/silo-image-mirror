@@ -1,0 +1,43 @@
+name: Mirror Silo image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_IMAGE: docker://docker.io/pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+      DESTINATION_IMAGE: docker://ghcr.io/leonardosfreire/silo:RELEASE.2026-09-16T00-00-00Z
+      EXPECTED_DIGEST: sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    steps:
+      - name: Install Skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes skopeo
+
+      - name: Authenticate to GHCR
+        run: |
+          skopeo login ghcr.io \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Verify source manifest
+        run: |
+          source_digest=$(skopeo inspect --raw "$SOURCE_IMAGE" | sha256sum | awk '{print "sha256:" $1}')
+          test "$source_digest" = "$EXPECTED_DIGEST"
+          echo "Source manifest verified: $source_digest"
+
+      - name: Mirror every architecture without changing digests
+        run: |
+          skopeo copy --all --preserve-digests "$SOURCE_IMAGE" "$DESTINATION_IMAGE"
+
+      - name: Verify mirrored manifest
+        run: |
+          destination_digest=$(skopeo inspect --raw --creds "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" "$DESTINATION_IMAGE" | sha256sum | awk '{print "sha256:" $1}')
+          test "$destination_digest" = "$EXPECTED_DIGEST"
+          echo "Destination manifest verified: $destination_digest"
